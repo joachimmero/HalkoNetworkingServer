@@ -48,26 +48,13 @@ void passData(SOCKET* sender_sock, Room *room)
 		if (iResult > 0)
 		{
 			//printf("Bytes received: %d\n", iResult);
-			const char* recvbuflenbytes = (const char*)&iResult;
 			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++) 
 			{
 				if (it->first != sender_sock)
 				{
 					SOCKET *receiver_sock = it->first;
-					char sendbuf[DEFAULT_BUFLEN];
-					for (int i = 0; i < iResult + 4; i++)
-					{
-						if (i < 4)
-						{
-							sendbuf[i] = recvbuflenbytes[i];
-						}
-						else
-						{
-							sendbuf[i] = recvbuf[i - 4];
-						}
-					}
-
-					iSendResult = send(*receiver_sock, sendbuf, iResult + 4, 0);
+				
+					iSendResult = send(*receiver_sock, recvbuf, iResult + 4, 0);
 					if (iSendResult == SOCKET_ERROR)
 					{
 						printf("send failed: %d\n", WSAGetLastError());
