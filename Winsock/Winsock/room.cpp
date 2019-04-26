@@ -26,6 +26,12 @@ std::unordered_map<SOCKET*, std::string>* Room::GetClients()
 {
 	return _clients;
 }
+
+unsigned int Room::GetClientCount()
+{
+	return _clients->size();
+}
+
 void Room::InformClients(std::pair<SOCKET*, std::string> client)
 {
 	SOCKET* c = std::get<SOCKET*>(client);
