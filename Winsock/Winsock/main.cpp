@@ -87,13 +87,20 @@ void passData(SOCKET* sender_sock, Room *room)
 					buf[3] = '0';
 					buf[4] = 'l';
 					buf[5] = leftclientid[0];
-					buf[6] = leftclientid[1];
+					buf[6]  = leftclientid[1];
 					buf[7] = leftclientid[2];
 					buf[8] = leftclientid[3];
 
 					iSendResult = send(*receiver_sock, buf, 9, 0);
 				}
 			}
+			//Remove the client who left from the room-objects clients-list. If the number of the clients after this is 0, remove the room from the rooms container and delete the room object.
+			if (room->RemoveClient(sender_sock) == 0)
+			{
+				rooms->erase(room->_name);
+				delete room;
+			}
+			closesocket(*sender_sock);
 			*sender_sock = INVALID_SOCKET;
 		}
 		else
@@ -105,6 +112,8 @@ void passData(SOCKET* sender_sock, Room *room)
 		}	
 	}
 	printf("Thread stopped...");
+	//Delete the socket;
+	delete sender_sock;
 }
 
 void createRoom(SOCKET *c, std::string name, std::string roomName, int roomSize)
