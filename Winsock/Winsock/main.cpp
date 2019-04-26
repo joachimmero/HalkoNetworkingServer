@@ -44,10 +44,10 @@ void passData(SOCKET* sender_sock, Room *room)
 		int recvbuflen = DEFAULT_BUFLEN;
 		char recvbuf[DEFAULT_BUFLEN];
 		iResult = recv(*sender_sock, recvbuf, recvbuflen, 0);
+		printf("Bytes received: %d\n", iResult);
 
 		if (iResult > 0)
 		{
-			//printf("Bytes received: %d\n", iResult);
 			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++) 
 			{
 				if (it->first != sender_sock)
@@ -58,16 +58,42 @@ void passData(SOCKET* sender_sock, Room *room)
 					if (iSendResult == SOCKET_ERROR)
 					{
 						printf("send failed: %d\n", WSAGetLastError());
-						*receiver_sock = INVALID_SOCKET;
-						iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+						if (WSAGetLastError() == 10057)
+						{
+							*receiver_sock = INVALID_SOCKET;
+							printf("Connection lost with client: " + *receiver_sock);
+							//iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+						}
 					}
 					//printf("Bytes sent: %d\n", iSendResult);
 				}
 			}
 		}
+		//If there was an error receiving data from the sender_sock -> sender_sock left the server.
 		else if (iResult == 0)
 		{
 			printf("Connection closed with client" + *sender_sock);
+			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++)
+			{
+				if (it->first != sender_sock)
+				{
+					SOCKET *receiver_sock = it->first;
+					const char* leftclientid = (const char*)sender_sock;
+					//Send all clients info that a player with the id of "leftclientid" has left the server.
+					char buf[9];
+					buf[0] = '9';
+					buf[1] = '0';
+					buf[2] = '0';
+					buf[3] = '0';
+					buf[4] = 'l';
+					buf[5] = leftclientid[0];
+					buf[6] = leftclientid[1];
+					buf[7] = leftclientid[2];
+					buf[8] = leftclientid[3];
+
+					iSendResult = send(*receiver_sock, buf, 9, 0);
+				}
+			}
 			*sender_sock = INVALID_SOCKET;
 		}
 		else
