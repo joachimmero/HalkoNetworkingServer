@@ -229,7 +229,11 @@ void StartHub(SOCKET c)
 	//First element is to check whether the client wants to create or join a room.
 	//The last element is the size of the room.
 	//Everything in the middle is the name of the room.
-	iSendResult = send(*client, "Welcome to the server", 21, 0);
+
+	//Send a callback to the client, that client is now connected to the server.
+	unsigned int len = 1;
+	char callback[5] = { ((const char*)&len)[0], ((const char*)&len)[1], ((const char*)&len)[2], ((const char*)&len)[3], 's' };
+	iSendResult = send(*client, callback, 5, 0);
 
 	//Signed char eli -127 - 127
 	char nxtbuflength[2];
