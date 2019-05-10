@@ -235,13 +235,6 @@ void StartHub(SOCKET c)
 	char callback[5] = { ((const char*)&len)[0], ((const char*)&len)[1], ((const char*)&len)[2], ((const char*)&len)[3], 's' };
 	iSendResult = send(*client, callback, 5, 0);
 
-	//Signed char eli -127 - 127
-	char nxtbuflength[2];
-	//Vastaanota clientilt‰ bittein‰ integer, joka m‰‰rittelee kuinka pitk‰ seuraava streami tulee olemaan.
-	recv(*client, nxtbuflength, 2, 0);
-	int buflen = (int)nxtbuflength[0];
-	int namelen = (int)nxtbuflength[1];
-	
 	unsigned int success;
 	//[0] = 0 -> Create Room or 1 -> Join Room
 	//[1] - [last - 1] Room Name
@@ -250,6 +243,13 @@ void StartHub(SOCKET c)
 	//Loop as long as the client hasn't succesfully created or joined a room.
 	do
 	{
+		//Signed char eli -127 - 127
+		char nxtbuflength[2];
+		//Vastaanota clientilt‰ bittein‰ integer, joka m‰‰rittelee kuinka pitk‰ seuraava streami tulee olemaan.
+		recv(*client, nxtbuflength, 2, 0);
+		int buflen = (int)nxtbuflength[0];
+		int namelen = (int)nxtbuflength[1];
+
 		char recvbuf[127];
 		iResult = recv(*client, recvbuf, buflen, 0);
 		printf(recvbuf);
