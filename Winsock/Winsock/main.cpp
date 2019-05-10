@@ -44,43 +44,64 @@ void passData(SOCKET* sender_sock, Room *room)
 		int recvbuflen = DEFAULT_BUFLEN;
 		char recvbuf[DEFAULT_BUFLEN];
 		iResult = recv(*sender_sock, recvbuf, recvbuflen, 0);
+		printf("Bytes received: %d\n", iResult);
 
 		if (iResult > 0)
 		{
-			//printf("Bytes received: %d\n", iResult);
-			const char* recvbuflenbytes = (const char*)&iResult;
 			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++) 
 			{
 				if (it->first != sender_sock)
 				{
 					SOCKET *receiver_sock = it->first;
-					char sendbuf[DEFAULT_BUFLEN];
-					for (int i = 0; i < iResult + 4; i++)
-					{
-						if (i < 4)
-						{
-							sendbuf[i] = recvbuflenbytes[i];
-						}
-						else
-						{
-							sendbuf[i] = recvbuf[i - 4];
-						}
-					}
-
-					iSendResult = send(*receiver_sock, sendbuf, iResult + 4, 0);
+				
+					iSendResult = send(*receiver_sock, recvbuf, iResult + 4, 0);
 					if (iSendResult == SOCKET_ERROR)
 					{
 						printf("send failed: %d\n", WSAGetLastError());
-						*receiver_sock = INVALID_SOCKET;
-						iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+						if (WSAGetLastError() == 10057)
+						{
+							*receiver_sock = INVALID_SOCKET;
+							printf("Connection lost with client: " + *receiver_sock);
+							//iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+						}
 					}
 					//printf("Bytes sent: %d\n", iSendResult);
 				}
 			}
 		}
+		//If there was an error receiving data from the sender_sock -> sender_sock left the server.
 		else if (iResult == 0)
 		{
 			printf("Connection closed with client" + *sender_sock);
+			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++)
+			{
+				if (it->first != sender_sock)
+				{
+					SOCKET *receiver_sock = it->first;
+					const char* leftclientid = (const char*)sender_sock;
+					unsigned int len = 9;
+					//Send all clients info that a player with the id of "leftclientid" has left the server.
+					char buf[9];
+					buf[0] = ((const char*)&len)[0];
+					buf[1] = ((const char*)&len)[1];
+					buf[2] = ((const char*)&len)[2];
+					buf[3] = ((const char*)&len)[3];
+					buf[4] = 'l';
+					buf[5] = leftclientid[0];
+					buf[6]  = leftclientid[1];
+					buf[7] = leftclientid[2];
+					buf[8] = leftclientid[3];
+
+					iSendResult = send(*receiver_sock, buf, 9, 0);
+				}
+			}
+			//Remove the client who left from the room-objects clients-list. If the number of the clients after this is 0, remove the room from the rooms container and delete the room object.
+			if (room->RemoveClient(sender_sock) == 0)
+			{
+				rooms->erase(room->_name);
+				delete room;
+			}
+			closesocket(*sender_sock);
 			*sender_sock = INVALID_SOCKET;
 		}
 		else
@@ -92,31 +113,60 @@ void passData(SOCKET* sender_sock, Room *room)
 		}	
 	}
 	printf("Thread stopped...");
+	//Delete the socket;
+	delete sender_sock;
 }
 
-void createRoom(SOCKET *c, std::string name, std::string roomName, int roomSize)
+unsigned int  createRoom(SOCKET *c, std::string name, std::string roomName, int roomSize)
 {
+	for (auto it = rooms->begin(); it != rooms->end(); it++)
+	{
+		if (it->first == roomName)
+		{
+			return 1;
+		}
+	}
 	Room *room = new Room(roomName, roomSize);
 	room->AddClient(std::make_pair(c, name));
 	std::cout << room;
 	rooms->insert({ roomName, room });
 	const char* id = (const char*)c;
-	char data[5] = { 'c', id[0], id[1], id[2], id[3] };
-	int iSendResult1 = send(*c, data, 5, 0);
+	unsigned int len = 5;
+	char data[9] = { ((const char*)&len)[0], ((const char*)&len)[1], ((const char*)&len)[2], ((const char*)&len)[3], 'c', id[0], id[1], id[2], id[3] };
+	int iSendResult1 = send(*c, data, 9, 0);
 	passData(c, room);
+
+	return 0;
 }
 
-void JoinRoom(SOCKET *c, std::string name, std::string roomName)
+unsigned int JoinRoom(SOCKET *c, std::string name, std::string roomName)
 {
+	bool roomfound = false;
+	for (auto it = rooms->begin(); it != rooms->end(); it++)
+	{
+		if (it->first == roomName)
+		{
+			Room room = *it->second;
+			if (room.GetClientCount() == room.maxPlayers)
+			{
+				return 2;
+			}
+			roomfound = true;
+		}
+	}
+	if (!roomfound)
+	{
+		return 1;
+	}
 	Room *room = rooms->at(roomName);
 	std::cout << rooms->at(roomName);
 	room->AddClient(std::make_pair(c, name));
 	const char* id = (const char*)c;
-
+	unsigned int len = 5;
 	//Send the client its id.
-	char data[5] = { 'j', id[0], id[1], id[2], id[3] };
+	char data[9] = { ((const char*)&len)[0], ((const char*)&len)[1], ((const char*)&len)[2], ((const char*)&len)[3], 'j', id[0], id[1], id[2], id[3] };
 	//HANDLE ERROR
-	int iSendResult1 = send(*c, data, 5, 0);
+	int iSendResult1 = send(*c, data, 9, 0);
 
 	//Get the number of clients currently in the room and minus by one.
 	unsigned int players = (unsigned int)room->GetClients()->size() - 1;
@@ -179,63 +229,120 @@ void StartHub(SOCKET c)
 	//First element is to check whether the client wants to create or join a room.
 	//The last element is the size of the room.
 	//Everything in the middle is the name of the room.
-	iSendResult = send(*client, "Welcome to the server", 21, 0);
 
-	//Signed char eli -127 - 127
-	char nxtbuflength[2];
-	//Vastaanota clientiltä bitteinä integer, joka määrittelee kuinka pitkä seuraava streami tulee olemaan.
-	recv(*client, nxtbuflength, 2, 0);
-	int buflen = (int)nxtbuflength[0];
-	int namelen = (int)nxtbuflength[1];
-	
+	//Send a callback to the client, that client is now connected to the server.
+	unsigned int len = 1;
+	char callback[5] = { ((const char*)&len)[0], ((const char*)&len)[1], ((const char*)&len)[2], ((const char*)&len)[3], 's' };
+	iSendResult = send(*client, callback, 5, 0);
+
+	unsigned int success;
 	//[0] = 0 -> Create Room or 1 -> Join Room
 	//[1] - [last - 1] Room Name
 	//[last] Max players in room
-	char recvbuf[127];
-	iResult = recv(*client, recvbuf, buflen, 0);
-	printf(recvbuf);
-	if (iSendResult == SOCKET_ERROR)
+
+	//Loop as long as the client hasn't succesfully created or joined a room.
+	do
 	{
-		//Do something about this error
-		printf("Error: " + WSAGetLastError());
-	}
-	if (iResult == 0)
-	{
-		//Do something about this error
-		printf("Error: " + WSAGetLastError());
-	}
-	else
-	{
-		//clientName-string
-		std::string n;
-		//roomName-string
-		std::string r;
-		int size = 0;
-		for (int i = 1; i < buflen; i++)
+		//Signed char eli -127 - 127
+		char nxtbuflength[2];
+		//Vastaanota clientiltä bitteinä integer, joka määrittelee kuinka pitkä seuraava streami tulee olemaan.
+		recv(*client, nxtbuflength, 2, 0);
+		int buflen = (int)nxtbuflength[0];
+		int namelen = (int)nxtbuflength[1];
+
+		char recvbuf[127];
+		iResult = recv(*client, recvbuf, buflen, 0);
+		printf(recvbuf);
+		if (iSendResult == SOCKET_ERROR)
 		{
-			if (i <= namelen)
+			//Do something about this error
+			printf("Error: " + WSAGetLastError());
+		}
+		if (iResult == 0)
+		{
+			//Do something about this error
+			printf("Error: " + WSAGetLastError());
+		}
+		else
+		{
+			//clientName-string
+			std::string n;
+			//roomName-string
+			std::string r;
+			int size = 0;
+			for (int i = 1; i < buflen; i++)
 			{
-				n += recvbuf[i];
-			}
-			else if (i > namelen && i < buflen - 1)
-			{
-				r += recvbuf[i];
-			}
-			else if (i == buflen - 1)
-			{
-				if (recvbuf[0] == '0')
+				if (i <= namelen)
 				{
-					size = (int)recvbuf[i] - 48;
-					createRoom(client, n, r, size);
+					n += recvbuf[i];
 				}
-				else if (recvbuf[0] == '1')
+				else if (i > namelen && i < buflen - 1)
 				{
 					r += recvbuf[i];
-					JoinRoom(client, n, r);
+				}
+				else if (i == buflen - 1)
+				{
+					if (recvbuf[0] == '0')
+					{
+						size = (int)recvbuf[i] - 48;
+						success = createRoom(client, n, r, size);
+
+						if (success == 1)
+						{
+							unsigned int len = 43;
+							char buf[47] = {
+								((const char*)&len)[0],
+								((const char*)&len)[1],
+								((const char*)&len)[2],
+								((const char*)&len)[3],
+								'f',
+								'c',
+								'A',' ','r','o','o','m',' ','w','i','t','h',' ','t','h','e',' ','s','a','m','e',' ','n','a','m','e',' ','a','l','r','e','a','d','y',' ','e','x','i','s','t','s','.'
+							};
+
+							send(c, buf, 47, 0);
+						}
+					}
+					else if (recvbuf[0] == '1')
+					{
+						r += recvbuf[i];
+						success = JoinRoom(client, n, r);
+						
+						if (success == 1)
+						{
+							unsigned int len = 17;
+							char buf[21] =
+							{
+								((const char*)&len)[0],
+								((const char*)&len)[1],
+								((const char*)&len)[2],
+								((const char*)&len)[3],
+								'f',
+								'j',
+								'R','o','o','m',' ','n','o','t',' ','f','o','u','n','d','!'
+							};
+							send(c, buf, 21, 0);
+						}
+						else if (success == 2)
+						{
+							unsigned int len = 12;
+							char buf[16] =
+							{
+								((const char*)&len)[0],
+								((const char*)&len)[1],
+								((const char*)&len)[2],
+								((const char*)&len)[3],
+								'f',
+								'j',
+								'R','o','o','m',' ','f','u','l','l','!'
+							};
+							send(c, buf, 16, 0);
+						}
+					}
 				}
 			}
 		}
-	} 
+	} while (success != 0);
 }
 
 int main() {
