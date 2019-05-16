@@ -7,10 +7,10 @@ class Room
 {
 public:
 	Room *p;
-	unsigned int maxPlayers;
+	unsigned int maxplayers;
 	std::string _name;
 
-	Room(std::string name, int size);
+	Room(std::string name, unsigned int size);
 	~Room();
 	void AddClient(std::pair<SOCKET*, std::string>);
 	unsigned int RemoveClient(SOCKET *client);
