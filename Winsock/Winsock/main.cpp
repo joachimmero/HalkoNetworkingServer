@@ -36,8 +36,7 @@ int checkRecvErrors(int iResult, SOCKET* client)
 
 		//Close the socket with which the connection was lost.
 		closesocket(*client);
-		//Delete the SOCKET-object.
-		delete client;
+		*client = INVALID_SOCKET;
 		//return 0 to indicate that an error occured
 		return 0;
 	}
@@ -50,8 +49,7 @@ int checkRecvErrors(int iResult, SOCKET* client)
 			<< std::endl;
 		//Close the socket with which the connection was lost.
 		closesocket(*client);
-		//Delete the SOCKET-object.
-		delete client;
+		*client = INVALID_SOCKET;
 		//return 0 to indicate that an error occured
 		return 0;
 	}
@@ -60,8 +58,9 @@ int checkRecvErrors(int iResult, SOCKET* client)
 
 void passData(SOCKET* sender_sock, Room *room)
 {
+	bool clientinroom = true;
 	//Receive and send data while the client socket is not INVALID_SOCKET
-	while (*sender_sock != INVALID_SOCKET)
+	while (clientinroom)
 	{	
 		unsigned int iResult = 0;
 		unsigned int iSendResult = 0;
@@ -73,25 +72,80 @@ void passData(SOCKET* sender_sock, Room *room)
 		//Check if data was received succesfully.
 		if (iResult > 0)
 		{
-			//Go through all the clients in the room.
-			for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++) 
+			if (recvbuf[0] != 'l')
 			{
-				//Check that the client isn't sender_sock.
-				if (it->first != sender_sock)
+				//Go through all the clients in the room.
+				for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++)
 				{
-					//Create a socket for the receiving client 
-					//and copy it->first to it.
-					SOCKET *receiver_sock = it->first;
-					//Send the received data to the receiving client.
-					iSendResult = send(*receiver_sock, recvbuf, iResult, 0);
-					if (iSendResult == SOCKET_ERROR)
+					//Check that the client isn't sender_sock.
+					if (it->first != sender_sock)
 					{
-						printf("send failed: %d\n", WSAGetLastError());
-						if (WSAGetLastError() == 10057)
+						//Create a socket for the receiving client 
+						//and copy it->first to it.
+						SOCKET *receiver_sock = it->first;
+						//Send the received data to the receiving client.
+						iSendResult = send(*receiver_sock, recvbuf, iResult, 0);
+						if (iSendResult == SOCKET_ERROR)
 						{
-							*receiver_sock = INVALID_SOCKET;
-							printf("Connection lost with client: " + *receiver_sock);
-							//iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+							printf("send failed: %d\n", WSAGetLastError());
+							if (WSAGetLastError() == 10057)
+							{
+								*receiver_sock = INVALID_SOCKET;
+								printf("Connection lost with client: " + *receiver_sock);
+								//iSendResult = send(*sender_sock, "Connection lost with other client", 28, 0);
+							}
+						}
+					}
+				}
+			}
+			//If the client sent info that he left the room intentionally.
+			else if(recvbuf[0] == 'l')
+			{
+				std::cout 
+					<< "Client " 
+					<< *sender_sock
+					<< " left the room\n";
+
+				//Remove the client who left from the room-objects clients-list. If the number of the clients after this is 0, remove the room from the rooms container and delete the room object.
+				if (room->RemoveClient(sender_sock) == 0)
+				{
+					rooms->erase(room->_name);
+					delete room;
+					room = nullptr;
+				}
+
+				clientinroom = false;
+
+				//Send a callback to the client that left the room.
+				send(*sender_sock, "l", 1, 0);
+
+				if (room != nullptr)
+				{
+					//Go through all the clients in the room.
+					for (auto it = room->GetClients()->begin(); it != room->GetClients()->end(); it++)
+					{
+						//Check that the client isn't sender_sock
+						if (it->first != sender_sock)
+						{
+							//Create a socket for the receiving client 
+							//and copy it->first to it.
+							SOCKET *receiver_sock = it->first;
+							//Convert the id of the client that left in bytes.
+							const char* leftclientid = (const char*)sender_sock;
+							//Create a buffer holding the info of 
+							//the client that left the room.
+							char buf[9];
+							buf[0] = 9;
+							buf[1] = 0;
+							buf[2] = 0;
+							buf[3] = 0;
+							buf[4] = 'l';
+							buf[5] = leftclientid[0];
+							buf[6] = leftclientid[1];
+							buf[7] = leftclientid[2];
+							buf[8] = leftclientid[3];
+							//Send the buffer to the client.
+							iSendResult = send(*receiver_sock, buf, 9, 0);
 						}
 					}
 				}
@@ -137,6 +191,12 @@ void passData(SOCKET* sender_sock, Room *room)
 			//Close the socket that the client used.
 			closesocket(*sender_sock);
 			*sender_sock = INVALID_SOCKET;
+
+			clientinroom = false;
+		}
+		else if (iResult == SOCKET_ERROR)
+		{
+
 		}
 		else
 		{
@@ -146,9 +206,6 @@ void passData(SOCKET* sender_sock, Room *room)
 			return;
 		}	
 	}
-	printf("Thread stopped...");
-	//Delete the socket;
-	delete sender_sock;
 }
 
 unsigned int  createRoom(SOCKET *c, std::string name, std::string roomName, unsigned int roomSize)
@@ -291,13 +348,13 @@ void StartHub(SOCKET c)
 	//Everything in the middle is the name of the room.
 
 	//Create a character array for the server connection callback.
-	//The first four elements are a unsigned int of the value 1 in bytes,
-	//and they represent the length of the callback-array - the first four bytes.
-	//The last byte is a flag that indicates that the connection to the server was succesfull.
+		//The first four elements are a unsigned int of the value 1 in bytes,
+		//and they represent the length of the callback-array - the first four bytes.
+		//The last byte is a flag that indicates that the connection to the server was succesfull.
 	char callback[5] = { 1, 0, 0, 0, 's' };
 
 	//Send a callback to the client, that indicates a succesfull connection to the server.
-	iSendResult = send(*client, callback, 5, 0);
+	send(*client, callback, 5, 0);
 
 	unsigned int success;
 	//[0] = 0 -> Create Room or 1 -> Join Room
@@ -332,7 +389,7 @@ void StartHub(SOCKET c)
 			{
 				success = 0;
 
-				if (recvbuf[0] == '2')
+				if (recvbuf[0] == 'g')
 				{
 					//Check the amount of rooms on the server and
 					//convert it to a const char (byte) -array.
@@ -415,7 +472,7 @@ void StartHub(SOCKET c)
 					{
 						r += recvbuf[i];
 					}
-					if (recvbuf[0] == '0')
+					if (recvbuf[0] == 'c')
 					{
 						//Cast the last element of the buffer(numeric character=
 						//to an unsigned int.
@@ -446,7 +503,7 @@ void StartHub(SOCKET c)
 							send(c, buf, 47, 0);
 						}
 					}
-					else if (recvbuf[0] == '1')
+					else if (recvbuf[0] == 'j')
 					{
 						r += recvbuf[*buflen - 1];
 						//Check if a room with the name n can be joined.
@@ -499,7 +556,8 @@ void StartHub(SOCKET c)
 				}
 			}
 		}	
-	} while (success != 0);
+	} while (*client != INVALID_SOCKET);
+	delete client;
 }
 
 int main() {
@@ -588,6 +646,7 @@ int main() {
 				return 1;
 			}
 		}
+
 		//Create a thread where the socket can receive and send data.
 		std::thread(StartHub, client).detach();
 	}
