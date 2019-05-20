@@ -1,8 +1,8 @@
 #include "room.h"
 
-Room::Room(std::string name, int size)
+Room::Room(std::string name, unsigned int size)
 {
-	Room::maxPlayers = size;
+	Room::maxplayers = size;
 	Room::_name = name;
 	_clients = new std::unordered_map<SOCKET*, std::string>();
 	p = this;
